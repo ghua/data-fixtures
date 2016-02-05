@@ -20,6 +20,7 @@
 namespace Doctrine\Tests\Common\DataFixtures;
 
 use Doctrine\Common\DataFixtures\Loader;
+use Doctrine\Tests\Common\DataFixtures\TestBrokenFixtures\BrokenFixture;
 
 /**
  * Test fixtures loader.
@@ -61,4 +62,34 @@ class LoaderTest extends BaseTest
         $this->assertTrue($loader->isTransient('TestFixtures\NotAFixture'));
         $this->assertFalse($loader->isTransient('TestFixtures\MyFixture1'));
     }
+
+    /**
+     * @expectedException \InvalidArgumentException
+     * @expectedExceptionMessage Class "Doctrine\Tests\Common\DataFixtures\TestBrokenFixtures\BrokenFixture" can't implement "OrderedFixtureInterface" and "DependentFixtureInterface" at the same time.
+     */
+    public function testAddFixtureInvalidArgumentException()
+    {
+        $loader = new Loader();
+        $loader->addFixture(new BrokenFixture());
+    }
+
+    public function testLoadOnlyTaggedFixtures()
+    {
+        $namespace = 'Doctrine\Tests\Common\DataFixtures\TestTaggedFixtures\\';
+
+        $loader = new Loader();
+        $loader->setSelectedTags(array('all'));
+        $loader->loadFromDirectory(__DIR__.'/TestTaggedFixtures');
+
+        $fixtures = $loader->getFixtures();
+
+        $this->assertCount(6, $fixtures);
+        $this->assertInstanceOf($namespace.'TaggedAndOrderedFixture1', $fixtures[0]);
+        $this->assertInstanceOf($namespace.'TaggedAndOrderedFixture2', $fixtures[1]);
+        $this->assertInstanceOf($namespace.'TaggedFixture', $fixtures[2]);
+        $this->assertInstanceOf($namespace.'DependentFixture2', $fixtures[3]);
+        $this->assertInstanceOf($namespace.'DependentFixture1', $fixtures[4]);
+        $this->assertInstanceOf($namespace.'TaggedAndWithDependenciesFixture', $fixtures[5]);
+    }
+
 }

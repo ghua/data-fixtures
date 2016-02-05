@@ -36,13 +36,6 @@ class Loader
     private $fixtures = array();
 
     /**
-     * Array of ordered fixture object instances.
-     *
-     * @var array
-     */
-    private $orderedFixtures = array();
-
-    /**
      * Determines if we must order fixtures by number
      *
      * @var boolean
@@ -62,6 +55,13 @@ class Loader
      * @var string
      */
     private $fileExtension = '.php';
+
+    /**
+     * The set of tags which were chosen to be loaded
+     *
+     * @var array
+     */
+    private $selectedTags = array();
 
     /**
      * Find fixtures classes in a given directory and load them.
@@ -149,21 +149,21 @@ class Loader
      */
     public function getFixtures()
     {
-        $this->orderedFixtures = array();
+        $orderedFixtures = array_values($this->fixtures);
+
+        if (!empty($this->selectedTags)) {
+            $orderedFixtures = $this->filterFixturesByTags($orderedFixtures);
+        }
 
         if ($this->orderFixturesByNumber) {
-            $this->orderFixturesByNumber();
+            $orderedFixtures = $this->orderFixturesByNumber($orderedFixtures);
         }
 
         if ($this->orderFixturesByDependencies) {
-            $this->orderFixturesByDependencies();
-        }
-        
-        if (!$this->orderFixturesByNumber && !$this->orderFixturesByDependencies) {
-            $this->orderedFixtures = $this->fixtures;
+            $orderedFixtures = $this->orderFixturesByDependencies($orderedFixtures);
         }
 
-        return $this->orderedFixtures;
+        return $orderedFixtures;
     }
 
     /**
@@ -182,15 +182,29 @@ class Loader
     }
 
     /**
-     * Orders fixtures by number
-     * 
-     * @todo maybe there is a better way to handle reordering
-     * @return void
+     * @param array $selectedTags
+     *
+     * @return $this
      */
-    private function orderFixturesByNumber()
+    public function setSelectedTags($selectedTags)
     {
-        $this->orderedFixtures = $this->fixtures;
-        usort($this->orderedFixtures, function($a, $b) {
+        $this->selectedTags = $selectedTags;
+
+        return $this;
+    }
+
+    /**
+     * Orders fixtures by number
+     *
+     * @param FixtureInterface[] $processingFixtures
+     *
+     * @todo maybe there is a better way to handle reordering
+     * @return FixtureInterface[]
+     */
+    private function orderFixturesByNumber($processingFixtures)
+    {
+        $orderedFixtures = $processingFixtures;
+        usort($orderedFixtures, function($a, $b) {
             if ($a instanceof OrderedFixtureInterface && $b instanceof OrderedFixtureInterface) {
                 if ($a->getOrder() === $b->getOrder()) {
                     return 0;
@@ -203,15 +217,20 @@ class Loader
             }
             return 0;
         });
+
+        return $orderedFixtures;
     }
     
     
     /**
      * Orders fixtures by dependencies
-     * 
-     * @return void
+     *
+     * @param FixtureInterface[] $processingFixtures
+     *
+     * @throws CircularReferenceException
+     * @return FixtureInterface[]
      */
-    private function orderFixturesByDependencies()
+    private function orderFixturesByDependencies($processingFixtures)
     {
         $sequenceForClasses = array();
 
@@ -222,13 +241,17 @@ class Loader
         // will handle all fixtures which are not instances of 
         // OrderedFixtureInterface
         if ($this->orderFixturesByNumber) {
-            $count = count($this->orderedFixtures);
+            $count = count($processingFixtures);
 
             for ($i = 0 ; $i < $count ; ++$i) {
-                if (!($this->orderedFixtures[$i] instanceof OrderedFixtureInterface)) {
-                    unset($this->orderedFixtures[$i]);
+                if (!($processingFixtures[$i] instanceof OrderedFixtureInterface)) {
+                    unset($processingFixtures[$i]);
                 }
             }
+        }
+
+        if ($processingFixtures === array_values($this->fixtures)) {
+            $processingFixtures = array();
         }
 
         // First we determine which classes has dependencies and which don't
@@ -270,9 +293,9 @@ class Loader
 
                 if (count($unsequencedDependencies) === 0) {
                     $sequenceForClasses[$class] = $sequence++;
-                }                
+                }
             }
-            
+
             $lastCount = $count;
         }
 
@@ -297,7 +320,7 @@ class Loader
             }
         }
 
-        $this->orderedFixtures = array_merge($this->orderedFixtures, $orderedFixtures);
+        return array_merge($processingFixtures, $orderedFixtures);
     }
 
     private function validateDependencies($dependenciesClasses)
@@ -362,5 +385,23 @@ class Loader
         }
 
         return $fixtures;
+    }
+
+    /**
+     * Filter out fixtures by tags and leave only relevant
+     *
+     * @param FixtureInterface[] $fixtures
+     *
+     * @return FixtureInterface[]
+     */
+    private function filterFixturesByTags($fixtures)
+    {
+        return array_filter($fixtures, function(FixtureInterface $fixture) {
+            if ( ! $fixture instanceof TaggedFixtureInterface) {
+                return false;
+            }
+
+            return count(array_intersect($fixture->getTags(), $this->selectedTags)) > 0;
+        });
     }
 }
